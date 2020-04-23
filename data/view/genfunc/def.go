@@ -49,21 +49,39 @@ func (obj *_BaseMgr) SetIsRelated(b bool) {
 	obj.isRelated = b
 }
 
-type options struct {
-	query map[string]interface{}
+type SqlContext struct {
+	Query   map[string]interface{}
+	Not     map[string]interface{}
+	Gt      map[string]interface{}
+	Lt      map[string]interface{}
+	In      map[string]interface{}
+	Changes map[string]interface{}
+	Order   []string
+}
+
+func NewSqlContext() *SqlContext {
+	return &SqlContext{
+		Query:   make(map[string]interface{}),
+		Changes: make(map[string]interface{}),
+		Not:     make(map[string]interface{}),
+		Gt:      make(map[string]interface{}),
+		Lt:      make(map[string]interface{}),
+		In:      make(map[string]interface{}),
+		Order:   []string{},
+	}
 }
 
 // Option overrides behavior of Connect.
 type Option interface {
-	apply(*options)
+	Apply(*SqlContext) *SqlContext
 }
 
-type optionFunc func(*options)
+type OptionFunc func(*SqlContext) *SqlContext
 
-func (f optionFunc) apply(o *options) {
+func (f OptionFunc) Apply(o *SqlContext) *SqlContext {
 	f(o)
+	return o
 }
-
 
 // OpenRelated 打开全局预加载
 func OpenRelated() {
@@ -111,59 +129,282 @@ func (obj *_{{$obj.StructName}}Mgr) Gets() (results []*{{$obj.StructName}}, err 
 
 //////////////////////////option case ////////////////////////////////////////////
 {{range $oem := $obj.Em}}
+
 // With{{$oem.ColStructName}} {{$oem.ColName}}获取 {{$oem.Notes}}
 func (obj *_{{$obj.StructName}}Mgr) With{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) Option {
-	return optionFunc(func(o *options) { o.query["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} })
+	return OptionFunc(func(o *SqlContext) *SqlContext { o.Query["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} ; return o;})
 }
+
+func (obj *_{{$obj.StructName}}Mgr) Gt{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) Option {
+	return OptionFunc(func(o *SqlContext) *SqlContext { o.Gt["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} ; return o;})
+}
+
+func (obj *_{{$obj.StructName}}Mgr) Lt{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) Option {
+	return OptionFunc(func(o *SqlContext) *SqlContext { o.Lt["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} ; return o;})
+}
+
+func (obj *_{{$obj.StructName}}Mgr) Not{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) Option {
+	return OptionFunc(func(o *SqlContext) *SqlContext { o.Not["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} ; return o;})
+}
+
+func (obj *_{{$obj.StructName}}Mgr) In{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}}s []*{{$oem.Type}}) Option {
+	return OptionFunc(func(o *SqlContext) *SqlContext { o.In["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}}s ; return o;})
+}
+{{end}}
+
+//////////////////////////update case ////////////////////////////////////////////
+{{range $oem := $obj.Em}}
+	// Change{{$oem.ColStructName}} {{$oem.ColName}}更新 {{$oem.Notes}}
+	func (obj *_{{$obj.StructName}}Mgr) Change{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) Option {
+		return OptionFunc(func(o *SqlContext) *SqlContext { o.Changes["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} ; return o;})
+	}
+{{end}}
+
+//////////////////////////order case ////////////////////////////////////////////
+{{range $oem := $obj.Em}}
+// Order{{$oem.ColStructName}} {{$oem.ColName}}排序 {{$oem.Notes}}
+func (obj *_{{$obj.StructName}}Mgr) Order{{$oem.ColStructName}}(sortType bool) Option {
+	orderSql := ""
+	if sortType {
+		orderSql = "{{$oem.ColName}} asc"
+	}else {
+		orderSql = "{{$oem.ColName}} desc"
+	}
+	return OptionFunc(func(o *SqlContext) *SqlContext { o.Order = append(o.Order, orderSql); return o })
+} 
 {{end}}
 
 // GetByOption 功能选项模式获取
 func (obj *_{{$obj.StructName}}Mgr) GetByOption(opts ...Option) (result {{$obj.StructName}}, err error) {
-	options := options{
-		query: make(map[string]interface{}, len(opts)),
-	}
+	sqlContext := NewSqlContext()
 	for _, o := range opts {
-		o.apply(&options)
+		o.Apply(sqlContext)
 	}
 
-	err = obj.DB.Table(obj.GetTableName()).Where(options.query).Find(&result).Error
+	//Query
+	db := obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query)
+
+	if len(sqlContext.In) >0 {
+		for col, val := range sqlContext.In {
+			db = db.Where(col+" in (?)", val)
+		}
+	}
+	if len(sqlContext.Not) >0 {
+		for col, val := range sqlContext.Not {
+			db = db.Where(col+" <> ?", val)
+		}
+	}
+	if len(sqlContext.Lt) >0 {
+		for col, val := range sqlContext.Lt {
+			db = db.Where(col+" < ? ", val)
+		}
+	}
+	if len(sqlContext.Gt) >0 {
+		for col, val := range sqlContext.Gt {
+			db = db.Where(col+" > ?", val)
+		}
+	}
+
+	//Order
+	if len(sqlContext.Order) > 0{
+		for _, order := range sqlContext.Order {
+			db = db.Order(order)
+		}
+	}
+
+	//find
+	err = db.Find(&result).Error
+
 	{{GenPreloadList $obj.PreloadList false}}
 	return
 }
 
 // GetByOptions 批量功能选项模式获取
 func (obj *_{{$obj.StructName}}Mgr) GetByOptions(opts ...Option) (results []*{{$obj.StructName}}, err error) {
-	options := options{
-		query: make(map[string]interface{}, len(opts)),
-	}
+	sqlContext := NewSqlContext()
 	for _, o := range opts {
-		o.apply(&options)
+		o.Apply(sqlContext)
 	}
 
-	err = obj.DB.Table(obj.GetTableName()).Where(options.query).Find(&results).Error
+	//Query
+	db := obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query)
+
+	if len(sqlContext.In) >0 {
+		for col, val := range sqlContext.In {
+			db = db.Where(col+" in (?)", val)
+		}
+	}
+	if len(sqlContext.Not) >0 {
+		for col, val := range sqlContext.Not {
+			db = db.Where(col+" <> ?", val)
+		}
+	}
+	if len(sqlContext.Lt) >0 {
+		for col, val := range sqlContext.Lt {
+			db = db.Where(col+" < ? ", val)
+		}
+	}
+	if len(sqlContext.Gt) >0 {
+		for col, val := range sqlContext.Gt {
+			db = db.Where(col+" > ?", val)
+		}
+	}
+
+	//Order
+	if len(sqlContext.Order) > 0{
+		for _, order := range sqlContext.Order {
+			db = db.Order(order)
+		}
+	}
+
+	//find
+	err = db.Find(&results).Error
 
 	{{GenPreloadList $obj.PreloadList true}}
 	return
 }
-//////////////////////////enume case ////////////////////////////////////////////
+
+func (obj *_{{$obj.StructName}}Mgr) GetPageByOptions(pageIndex, pageSize int, opts ...Option) (results []*{{$obj.StructName}}, err error) {
+	sqlContext := NewSqlContext()
+	for _, o := range opts {
+		o.Apply(sqlContext)
+	}
+	//Query
+	db := obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query)
+
+	if len(sqlContext.In) >0 {
+		for col, val := range sqlContext.In {
+			db = db.Where(col+" in (?)", val)
+		}
+	}
+	if len(sqlContext.Not) >0 {
+		for col, val := range sqlContext.Not {
+			db = db.Where(col+" <> ?", val)
+		}
+	}
+	if len(sqlContext.Lt) >0 {
+		for col, val := range sqlContext.Lt {
+			db = db.Where(col+" < ? ", val)
+		}
+	}
+	if len(sqlContext.Gt) >0 {
+		for col, val := range sqlContext.Gt {
+			db = db.Where(col+" > ?", val)
+		}
+	}
+
+	//Order
+	if len(sqlContext.Order) > 0{
+		for _, order := range sqlContext.Order {
+			db = db.Order(order)
+		}
+	}
+
+	//offset
+	db = db.Offset(pageIndex * pageSize)
+
+	//limit
+	db = db.Limit(pageSize)
+
+	//find
+	err = db.Find(&results).Error
+	return
+}
+
+func (obj *_{{$obj.StructName}}Mgr) UpdateByOption(opts ...Option) (err error) {
+    sqlContext := NewSqlContext()
+	for _, o := range opts {
+		o.Apply(sqlContext)
+	}
+	err = obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query).Updates(sqlContext.Changes).Error
+	return
+}
+
+// Count 计数
+func (obj *_{{$obj.StructName}}Mgr) Count(opts ...Option) (num int, err error) {
+	sqlContext :=  NewSqlContext()
+	for _, o := range opts {
+		o.Apply(sqlContext)
+	}
+	//Query
+	db := obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query)
+
+	if len(sqlContext.In) >0 {
+		for col, val := range sqlContext.In {
+			db = db.Where(col+" in (?)", val)
+		}
+	}
+	if len(sqlContext.Not) >0 {
+		for col, val := range sqlContext.Not {
+			db = db.Where(col+" <> ?", val)
+		}
+	}
+	if len(sqlContext.Lt) >0 {
+		for col, val := range sqlContext.Lt {
+			db = db.Where(col+" < ? ", val)
+		}
+	}
+	if len(sqlContext.Gt) >0 {
+		for col, val := range sqlContext.Gt {
+			db = db.Where(col+" > ?", val)
+		}
+	}
+	err = obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query).Count(&num).Error
+	return
+}
+
+// Delete 计数
+func (obj *_{{$obj.StructName}}Mgr) Delete(opts ...Option) (err error) {
+	sqlContext := NewSqlContext()
+
+	for _, o := range opts {
+		o.Apply(sqlContext)
+	}
+	//Query
+	db := obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query)
+
+	if len(sqlContext.In) >0 {
+		for col, val := range sqlContext.In {
+			db = db.Where(col+" in (?)", val)
+		}
+	}
+	if len(sqlContext.Not) >0 {
+		for col, val := range sqlContext.Not {
+			db = db.Where(col+" <> ?", val)
+		}
+	}
+	if len(sqlContext.Lt) >0 {
+		for col, val := range sqlContext.Lt {
+			db = db.Where(col+" < ? ", val)
+		}
+	}
+	if len(sqlContext.Gt) >0 {
+		for col, val := range sqlContext.Gt {
+			db = db.Where(col+" > ?", val)
+		}
+	}
+	err = obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query).Delete(Sector{}).Error
+	return
+}
+//////////////////////////batch case ////////////////////////////////////////////
 
 {{range $oem := $obj.Em}}
 // GetFrom{{$oem.ColStructName}} 通过{{$oem.ColName}}获取内容 {{$oem.Notes}} {{if $oem.IsMulti}}
-func (obj *_{{$obj.StructName}}Mgr) GetFrom{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) (results []*{{$obj.StructName}}, err error) {
-	err = obj.DB.Table(obj.GetTableName()).Where("{{$oem.ColName}} = ?", {{CapLowercase $oem.ColStructName}}).Find(&results).Error
+func (obj *_{{$obj.StructName}}Mgr) GetFrom{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) (batchResults []*{{$obj.StructName}}, err error) {
+	err = obj.DB.Table(obj.GetTableName()).Where("{{$oem.ColName}} = ?", {{CapLowercase $oem.ColStructName}}).Find(&batchResults).Error
 	{{GenPreloadList $obj.PreloadList true}}
 	return
 }
 {{else}}
 func (obj *_{{$obj.StructName}}Mgr)  GetFrom{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}} {{$oem.Type}}) (result {{$obj.StructName}}, err error) {
-	err = obj.DB.Table(obj.GetTableName()).Where("{{$oem.ColName}} = ?", {{$oem.ColStructName}}).Find(&result).Error
+	err = obj.DB.Table(obj.GetTableName()).Where("{{$oem.ColName}} = ?", {{CapLowercase $oem.ColStructName}}).Find(&result).Error
 	{{GenPreloadList $obj.PreloadList false}}
 	return
 }
 {{end}}
 // GetBatchFrom{{$oem.ColStructName}} 批量唯一主键查找 {{$oem.Notes}}
-func (obj *_{{$obj.StructName}}Mgr) GetBatchFrom{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}}s []{{$oem.Type}}) (results []*{{$obj.StructName}}, err error) {
-	err = obj.DB.Table(obj.GetTableName()).Where("{{$oem.ColName}} IN (?)", {{CapLowercase $oem.ColStructName}}s).Find(&results).Error
+func (obj *_{{$obj.StructName}}Mgr) GetBatchFrom{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}}s []{{$oem.Type}}) (batchResults []*{{$obj.StructName}}, err error) {
+	err = obj.DB.Table(obj.GetTableName()).Where("{{$oem.ColName}} IN (?)", {{CapLowercase $oem.ColStructName}}s).Find(&batchResults).Error
 	{{GenPreloadList $obj.PreloadList true}}
 	return
 }
