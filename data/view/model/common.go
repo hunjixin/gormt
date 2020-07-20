@@ -19,7 +19,7 @@ func getCamelName(name string) string {
 		return mybigcamel.Marshal(strings.TrimSuffix(name, "s"))
 	}
 
-	return mybigcamel.Marshal(name)
+	return strings.TrimRight(mybigcamel.Marshal(name), "s")
 }
 
 // titleCase title case.首字母大写

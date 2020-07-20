@@ -99,6 +99,7 @@ func (m *_Model) genTableElement(cols []ColumnsInfo) (el []genstruct.GenElement)
 		if len(v.Name) > 0 {
 			// not simple output
 			if !config.GetSimple() {
+				tmp.AddTag("json", CapLowercase(getCamelName(v.Name)))
 				tmp.AddTag(_tagGorm, "column:"+v.Name)
 				tmp.AddTag(_tagGorm, "type:"+v.Type)
 				if !v.IsNull {

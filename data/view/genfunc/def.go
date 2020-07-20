@@ -147,7 +147,7 @@ func (obj *_{{$obj.StructName}}Mgr) Not{{$oem.ColStructName}}({{CapLowercase $oe
 	return OptionFunc(func(o *SqlContext) *SqlContext { o.Not["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}} ; return o;})
 }
 
-func (obj *_{{$obj.StructName}}Mgr) In{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}}s []*{{$oem.Type}}) Option {
+func (obj *_{{$obj.StructName}}Mgr) In{{$oem.ColStructName}}({{CapLowercase $oem.ColStructName}}s ...{{$oem.Type}}) Option {
 	return OptionFunc(func(o *SqlContext) *SqlContext { o.In["{{$oem.ColName}}"] = {{CapLowercase $oem.ColStructName}}s ; return o;})
 }
 {{end}}
@@ -349,7 +349,7 @@ func (obj *_{{$obj.StructName}}Mgr) Count(opts ...Option) (num int, err error) {
 			db = db.Where(col+" > ?", val)
 		}
 	}
-	err = obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query).Count(&num).Error
+	err = db.Count(&num).Error
 	return
 }
 
@@ -383,7 +383,7 @@ func (obj *_{{$obj.StructName}}Mgr) Delete(opts ...Option) (err error) {
 			db = db.Where(col+" > ?", val)
 		}
 	}
-	err = obj.DB.Table(obj.GetTableName()).Where(sqlContext.Query).Delete(Sector{}).Error
+	err = db.Delete({{$obj.StructName}}).Error
 	return
 }
 //////////////////////////batch case ////////////////////////////////////////////

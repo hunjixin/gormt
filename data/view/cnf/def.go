@@ -24,7 +24,7 @@ var TypeMysqlDicMp = map[string]string{
 	"tinyint":             "int8",
 	"tinyint unsigned":    "uint8",
 	"tinyint(1)":          "int8",
-	"tinyint(1) unsigned": "int8",
+	"tinyint(1) unsigned": "uint8",
 	"json":                "string",
 	"text":                "string",
 	"timestamp":           "time.Time",
